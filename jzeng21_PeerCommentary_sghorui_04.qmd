@@ -1,0 +1,233 @@
+---
+title: "sghorui_OriginalHomeworkCode_04"
+author: "Soumalya"
+format: html
+editor: visual
+---
+
+# **Boots for Days!**
+
+Create a new ***GitHub*** repo and git-referenced ***Rstudio*** Project called “**AN588_Boots_BUlogin**”. Within that repo, create a new `.Rmd` file called “**BUlogin_OriginalHomeworkCode_04**”. Don’t forget to add your [Peer Group](https://fuzzyatelin.github.io/bioanth-stats/peercommentary.html) and instructor as collaborators, and to accept their invitations to you. Making sure to push both the markdown and knitted `.html` files to your repository, do the following:
+
+You are welcome to work *with your Peer Group together* on this homework assignment or on your own. If you work with someone else, please include all of your names in the header information for your `.Rmd` file.
+
+### Bootstrapping Standard Errors and CIs for Linear Models.
+
+When we initially discussed the central limit theorem and confidence intervals, we showed how we could use bootstrapping to estimate standard errors and confidence intervals around certain parameter values, like the mean. Using bootstrapping, we could also do the same for estimating standard errors and CIs around regression parameters, such as 𝛽 coefficients.
+
+\[1\] Using the “KamilarAndCooperData.csv” dataset, run a linear regression looking at log(HomeRange_km2) in relation to log(Body_mass_female_mean) and report your 𝛽 coeffiecients (slope and intercept).
+
+\[2\] Then, use bootstrapping to sample from your data 1000 times with replacement, each time fitting the same model and calculating the same coefficients. This generates a sampling distribution for each 𝛽 coefficient.
+
+-   Estimate the standard error for each of your 𝛽 coefficients as the standard deviation of the sampling distribution from your bootstrap and determine the 95% CI for each of your 𝛽 coefficients based on the appropriate quantiles from your sampling distribution.
+
+-   How does the former compare to the SE estimated from your entire dataset using the formula for standard error implemented in `lm()`?
+
+-   How does the latter compare to the 95% CI estimated from your entire dataset?
+
+**EXTRA CREDIT**
+
+Write a FUNCTION that takes as its arguments a dataframe, “d”, a linear model, “m” (as a character string, e.g., “logHR\~logBM”), a user-defined confidence interval level, “conf.level” (with default = 0.95), and a number of bootstrap replicates, “n” (with default = 1000). Your function should return a dataframe that includes: beta coefficient names; beta coefficients, standard errors, and upper and lower CI limits for the linear model based on your entire dataset; and mean beta coefficient estimates, SEs, and CI limits for those coefficients based on your bootstrap.
+
+**EXTRA EXTRA CREDIT**
+
+Graph each beta value from the linear model and its corresponding mean value, lower CI and upper CI from a bootstrap as a function of number of bootstraps from 10 to 200 by 10s. HINT: the beta value from the linear model will be the same for all bootstraps and the mean beta value may not differ that much!
+
+Here we go!
+
+### Loading and Preparing the Data
+
+```{r}
+library(dplyr)   # For data manipulation
+library(ggplot2) # For plotting (extra credit)
+library(readr)   # For reading CSV from URL # Loading the required libraries
+
+KC <- read_csv("https://raw.githubusercontent.com/fuzzyatelin/fuzzyatelin.github.io/master/AN588_Fall23/KamilarAndCooperData.csv") # Reading the dataset directly from the URL
+
+str(KC) # Checking the structure of the data
+
+KC <- KC %>% # nice mutate usage here I didn't use mutate but it worked for you!I directly assigned using data when trying to run the code i did get an error but i am not sure if it is just specific to me and not when you run it. - jason
+  mutate(
+    logHR = log(HomeRange_km2),
+    logBM = log(Body_mass_female_mean) # Creating new variables with log transformations
+  ) %>% # nice removal of non numerical values by using is na - jason but 
+  filter(!is.na(logHR) & !is.na(logBM))  # Remove rows with missing values 
+```
+
+### Running the linear regression
+
+```{r}
+#Here overall i did the same as you
+model <- lm(logHR ~ logBM, data = KC) # Running the linear regression
+
+summary(model) # Viewing the model summary
+
+coefficients <- coef(model)
+se <- summary(model)$coefficients[, "Std. Error"] # Extracting coefficients and their standard errors
+```
+
+### Bootstrapping the Regression
+
+```{r}
+#overall the code here is similar to mine. I did both setting the boot then setting the seed. - jason 
+n_boot <- 1000 # Setting the number of bootstrap samples
+
+boot_coefs <- matrix(NA, nrow = n_boot, ncol = 2)
+colnames(boot_coefs) <- c("Intercept", "Slope") # Initializing matrices to store bootstrap results
+
+#Now let's do Bootstrap Bill!
+set.seed(123)  # For reproducibility
+for (i in 1:n_boot) {
+  boot_sample <- KC[sample(nrow(KC), replace = TRUE), ] # Sample with replacement
+  
+  boot_model <- lm(logHR ~ logBM, data = boot_sample) # Fitting the model to the bootstrap sample
+  
+  boot_coefs[i, ] <- coef(boot_model) # Storing the coefficients
+}
+```
+
+### Analyzing Bootstrap Results
+
+```{r}
+# Calculating bootstrap statistics
+boot_mean <- apply(boot_coefs, 2, mean)# Mean of bootstrap coefficients
+boot_se <- apply(boot_coefs, 2, sd) # Bootstrap standard error
+boot_ci <- apply(boot_coefs, 2, quantile, probs = c(0.025, 0.975)) # Bootstrap 95% CI
+
+comparison <- data.frame(
+  Coefficient = c("Intercept", "Slope"),
+  Original_Estimate = coefficients,
+  Original_SE = se,
+  Original_CI_lower = coefficients - 1.96 * se,
+  Original_CI_upper = coefficients + 1.96 * se,
+  Bootstrap_Mean = boot_mean,
+  Bootstrap_SE = boot_se,
+  Bootstrap_CI_lower = boot_ci[1, ],
+  Bootstrap_CI_upper = boot_ci[2, ]
+) # Comparing with original model results
+
+print(comparison) # Lets see it
+#after running the results I would like to see your interpretation of the results and what the results mean - jason
+```
+
+### Creating a Bootstrap Function (extra credit)
+
+```{r}
+bootstrap_lm <- function(d, model_formula, conf.level = 0.95, n = 1000) # Function for bootstrapping linear models
+{
+original_model <- lm(as.formula(model_formula), data = d) # Fitting the original model
+  
+original_coef <- coef(original_model)
+original_summary <- summary(original_model)
+original_se <- original_summary$coefficients[, "Std. Error"] # Extracting original coefficients and SEs
+  
+alpha <- 1 - conf.level
+original_ci_lower <- original_coef - qnorm(1 - alpha/2) * original_se
+original_ci_upper <- original_coef + qnorm(1 - alpha/2) * original_se # Calculate original CIs
+  
+boot_coefs <- matrix(NA, nrow = n, ncol = length(original_coef))
+colnames(boot_coefs) <- names(original_coef) # Initializing the matrix for bootstrap coefficients
+  
+for (i in 1:n) {
+boot_sample <- d[sample(nrow(d), replace = TRUE), ]
+boot_model <- lm(as.formula(model_formula), data = boot_sample)
+boot_coefs[i, ] <- coef(boot_model)
+} # Performing bootstrapping
+  
+boot_mean <- apply(boot_coefs, 2, mean)
+boot_se <- apply(boot_coefs, 2, sd)
+boot_ci <- apply(boot_coefs, 2, quantile, probs = c(alpha/2, 1 - alpha/2)) # Calculating bootstrap statistics
+  
+result <- data.frame(
+Coefficient = names(original_coef),
+Original_Estimate = original_coef,
+Original_SE = original_se,
+Original_CI_lower = original_ci_lower,
+Original_CI_upper = original_ci_upper,
+Bootstrap_Mean = boot_mean,
+Bootstrap_SE = boot_se,
+Bootstrap_CI_lower = boot_ci[1, ],
+Bootstrap_CI_upper = boot_ci[2, ]
+) # Creating result dataframe
+  
+  return(result)
+}
+
+
+boot_results <- bootstrap_lm(
+  d = KC,
+  model_formula = "logHR ~ logBM",
+  conf.level = 0.95,
+  n = 1000
+) # An example
+
+print(boot_results)
+
+#overall very similar good job on this-jason 
+```
+
+### Plot Bootstrap Results (Extra Extra Credit)
+
+```{r}
+plot_bootstrap_convergence <- function(d, model_formula, max_boots = 200, step = 10) # Function to plot bootstrap convergence
+{
+original_model <- lm(as.formula(model_formula), data = d)
+original_coef <- coef(original_model) # Fitting the original model
+  
+boot_seq <- seq(10, max_boots, by = step) # Creating the sequence of bootstrap numbers
+  s
+results <- list() # Initializing the list to store results
+  
+for (i in seq_along(boot_seq)) {
+n <- boot_seq[i] # Running bootstraps at each step
+    
+boot_coefs <- matrix(NA, nrow = n, ncol = length(original_coef))
+colnames(boot_coefs) <- names(original_coef)
+    
+for (j in 1:n) {
+boot_sample <- d[sample(nrow(d), replace = TRUE), ]
+boot_model <- lm(as.formula(model_formula), data = boot_sample)
+boot_coefs[j, ] <- coef(boot_model)
+} # Performing bootstrap
+    
+boot_mean <- apply(boot_coefs, 2, mean)
+boot_se <- apply(boot_coefs, 2, sd)
+boot_ci <- apply(boot_coefs, 2, quantile, probs = c(0.025, 0.975)) # Calculating statistics
+    
+results[[i]] <- data.frame(
+n_boots = n,
+Coefficient = names(original_coef),
+Original = original_coef,
+Bootstrap_Mean = boot_mean,
+Bootstrap_SE = boot_se,
+Bootstrap_CI_lower = boot_ci[1, ],
+Bootstrap_CI_upper = boot_ci[2, ]
+) # Storing the results
+}
+  
+all_results <- do.call(rbind, results) # Combining all results
+  
+plots <- list()
+for (coef in names(original_coef)) {
+coef_data <- all_results[all_results$Coefficient == coef, ]
+    
+p <- ggplot(coef_data, aes(x = n_boots)) + geom_hline(yintercept = unique(coef_data$Original), color = "red", linetype = "dashed") + geom_line(aes(y = Bootstrap_Mean), color = "blue") + geom_ribbon(aes(ymin = Bootstrap_CI_lower, ymax = Bootstrap_CI_upper), alpha = 0.2, fill = "blue") + labs(title = paste("Bootstrap Convergence for", coef), x = "Number of Bootstraps", y = "Coefficient Value") + theme_minimal()
+# Plotting for each coefficient    
+plots[[coef]] <- p
+}
+  
+return(plots)
+}
+
+convergence_plots <- plot_bootstrap_convergence(
+d = KC,
+model_formula = "logHR ~ logBM",
+max_boots = 200,
+step = 10
+) # An Example
+
+convergence_plots$`(Intercept)`
+convergence_plots$logBM # Displaying the plots
+#nice plot - jason 
+# I think overall there does not seem to be much issue although when I tried to run the first code it had an error but I am not sure if that is just specific to me- jason
+```
